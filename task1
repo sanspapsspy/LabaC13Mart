@@ -1,0 +1,73 @@
+#include <stdio.h>
+#include <stdlib.h>
+
+void print_file_flags(FILE *fp) {
+    printf("Flags: _IO_read_ptr=%p, _IO_read_end=%p, _IO_read_base=%p, "
+           "_IO_write_base=%p, _IO_write_ptr=%p, _IO_write_end=%p, "
+           "_IO_buf_base=%p, _IO_buf_end=%p, _flags=%d, _fileno=%d\n",
+           fp->_IO_read_ptr, fp->_IO_read_end, fp->_IO_read_base,
+           fp->_IO_write_base, fp->_IO_write_ptr, fp->_IO_write_end,
+           fp->_IO_buf_base, fp->_IO_buf_end, fp->_flags, fp->_fileno);
+}
+
+int main(int argc, char *argv[]) {
+    if (argc != 2) {
+        fprintf(stderr, "Usage: %s <filename>\n", argv[0]);
+        return 1;
+    }
+
+    const char *filename = argv[1];
+    unsigned char data[] = {3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5};
+    size_t data_size = sizeof(data);
+
+    // Создание и запись файла
+    FILE *fp = fopen(filename, "wb");
+    if (!fp) {
+        perror("fopen for write");
+        return 1;
+    }
+    if (fwrite(data, 1, data_size, fp) != data_size) {
+        perror("fwrite");
+        fclose(fp);
+        return 1;
+    }
+    fclose(fp);
+
+    // Чтение с выводом состояния FILE*
+    fp = fopen(filename, "rb");
+    if (!fp) {
+        perror("fopen for read");
+        return 1;
+    }
+
+    int ch;
+    while ((ch = fgetc(fp)) != EOF) {
+        printf("Byte: %d\n", ch);
+        print_file_flags(fp);
+    }
+    fclose(fp);
+
+    // Повторное открытие и fseek + fread
+    fp = fopen(filename, "rb");
+    if (!fp) {
+        perror("fopen for second read");
+        return 1;
+    }
+
+    if (fseek(fp, 3, SEEK_SET) != 0) {
+        perror("fseek");
+        fclose(fp);
+        return 1;
+    }
+
+    unsigned char buffer[4];
+    size_t bytes_read = fread(buffer, 1, 4, fp);
+    printf("fread считал %zu байт: ", bytes_read);
+    for (size_t i = 0; i < bytes_read; i++) {
+        printf("%d ", buffer[i]);
+    }
+    printf("\n");
+
+    fclose(fp);
+    return 0;
+}
