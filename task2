@@ -1,0 +1,191 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+#define MAX_USERS 100
+#define MAX_LOGIN_LEN 6
+#define PIN_MAX 100000
+
+typedef struct {
+    char login[MAX_LOGIN_LEN + 1];
+    int pin;
+    int sanctions; // 0 - нет ограничений, иначе макс. запросов за сеанс
+} User;
+
+User users[MAX_USERS];
+int user_count = 0;
+int current_user_index = -1;
+int request_count = 0;
+int max_requests = 0;
+
+void load_users() {
+    FILE *fp = fopen("users.dat", "rb");
+    if (fp) {
+        fread(&user_count, sizeof(int), 1, fp);
+        fread(users, sizeof(User), user_count, fp);
+        fclose(fp);
+    }
+}
+
+void save_users() {
+    FILE *fp = fopen("users.dat", "wb");
+    if (fp) {
+        fwrite(&user_count, sizeof(int), 1, fp);
+        fwrite(users, sizeof(User), user_count, fp);
+        fclose(fp);
+    }
+}
+
+int find_user(const char *login) {
+    for (int i = 0; i < user_count; i++) {
+        if (strcmp(users[i].login, login) == 0) return i;
+    }
+    return -1;
+}
+
+void register_user() {
+    if (user_count >= MAX_USERS) {
+        printf("User limit reached.\n");
+        return;
+    }
+    User new_user;
+    printf("Enter login (max 6 chars, alnum): ");
+    scanf("%6s", new_user.login);
+    if (find_user(new_user.login) != -1) {
+        printf("Login already exists.\n");
+        return;
+    }
+    printf("Enter PIN (0-100000): ");
+    scanf("%d", &new_user.pin);
+    if (new_user.pin < 0 || new_user.pin > PIN_MAX) {
+        printf("Invalid PIN.\n");
+        return;
+    }
+    new_user.sanctions = 0;
+    users[user_count++] = new_user;
+    save_users();
+    printf("Registration successful.\n");
+}
+
+int login_user() {
+    char login[MAX_LOGIN_LEN + 1];
+    int pin;
+    printf("Login: ");
+    scanf("%6s", login);
+    printf("PIN: ");
+    scanf("%d", &pin);
+    int idx = find_user(login);
+    if (idx != -1 && users[idx].pin == pin) {
+        current_user_index = idx;
+        request_count = 0;
+        max_requests = users[idx].sanctions;
+        printf("Welcome, %s!\n", login);
+        return 1;
+    }
+    printf("Invalid credentials.\n");
+    return 0;
+}
+
+void cmd_time() {
+    time_t t = time(NULL);
+    struct tm *tm = localtime(&t);
+    printf("%02d:%02d:%02d\n", tm->tm_hour, tm->tm_min, tm->tm_sec);
+}
+
+void cmd_date() {
+    time_t t = time(NULL);
+    struct tm *tm = localtime(&t);
+    printf("%02d:%02d:%04d\n", tm->tm_mday, tm->tm_mon + 1, tm->tm_year + 1900);
+}
+
+void cmd_howmuch(char *datetime, char *flag) {
+    struct tm tm = {0};
+    if (sscanf(datetime, "%d:%d:%d %d:%d:%d",
+               &tm.tm_mday, &tm.tm_mon, &tm.tm_year,
+               &tm.tm_hour, &tm.tm_min, &tm.tm_sec) != 6) {
+        printf("Invalid datetime format. Use dd:MM:yyyy hh:mm:ss\n");
+        return;
+    }
+    tm.tm_mon -= 1;
+    tm.tm_year -= 1900;
+    time_t past = mktime(&tm);
+    time_t now = time(NULL);
+    double diff = difftime(now, past);
+    if (diff < 0) diff = 0;
+
+    if (strcmp(flag, "-s") == 0) printf("Seconds: %.0f\n", diff);
+    else if (strcmp(flag, "-m") == 0) printf("Minutes: %.0f\n", diff / 60);
+    else if (strcmp(flag, "-h") == 0) printf("Hours: %.0f\n", diff / 3600);
+    else if (strcmp(flag, "-y") == 0) printf("Years: %.2f\n", diff / (3600 * 24 * 365.25));
+    else printf("Unknown flag. Use -s, -m, -h, -y\n");
+}
+
+void cmd_sanctions(char *username) {
+    int idx = find_user(username);
+    if (idx == -1) {
+        printf("User not found.\n");
+        return;
+    }
+    int val;
+    printf("Enter 52 to confirm: ");
+    scanf("%d", &val);
+    if (val != 52) {
+        printf("Confirmation failed.\n");
+        return;
+    }
+    printf("Enter max requests per session: ");
+    scanf("%d", &users[idx].sanctions);
+    save_users();
+    printf("Sanctions updated.\n");
+}
+
+void shell() {
+    char command[100];
+    while (1) {
+        if (max_requests > 0 && request_count >= max_requests) {
+            printf("Request limit reached. Logging out.\n");
+            current_user_index = -1;
+            break;
+        }
+
+        printf("> ");
+        scanf("%s", command);
+        if (strcmp(command, "Time") == 0) {
+            cmd_time();
+            request_count++;
+        } else if (strcmp(command, "Date") == 0) {
+            cmd_date();
+            request_count++;
+        } else if (strcmp(command, "Howmuch") == 0) {
+            char dt[30], flag[5];
+            scanf("%s %s", dt, flag);
+            cmd_howmuch(dt, flag);
+            request_count++;
+        } else if (strcmp(command, "Logout") == 0) {
+            current_user_index = -1;
+            break;
+        } else if (strcmp(command, "Sanctions") == 0) {
+            char username[10];
+            scanf("%s", username);
+            cmd_sanctions(username);
+            request_count++;
+        } else {
+            printf("Unknown command.\n");
+        }
+    }
+}
+
+int main() {
+    load_users();
+    int choice;
+    while (1) {
+        printf("1. Register\n2. Login\n3. Exit\nChoice: ");
+        scanf("%d", &choice);
+        if (choice == 1) register_user();
+        else if (choice == 2) {
+            if (login_user()) shell();
+        } else break;
+    }
+    return 0;
+}
